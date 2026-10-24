@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>팀 업무 대시보드</title>
+  <meta name="description" content="팀원들과 이번 주 업무 진행 상황과 차주 예정 업무를 함께 관리하는 업무 일정관리 대시보드" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="container header-inner">
+      <h1 class="app-title">팀 업무 대시보드</h1>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- 주차 이동 -->
+    <section class="week-nav" aria-label="주차 선택">
+      <button type="button" class="btn btn-icon" id="prevWeekBtn" aria-label="이전 주">‹</button>
+      <div class="week-info">
+        <strong id="weekLabel">-</strong>
+        <span id="weekRange">-</span>
+      </div>
+      <button type="button" class="btn btn-icon" id="nextWeekBtn" aria-label="다음 주">›</button>
+      <button type="button" class="btn btn-ghost" id="thisWeekBtn" hidden>이번 주로 돌아가기</button>
+    </section>
+
+    <!-- 요약 카드 -->
+    <section class="summary" aria-label="업무 요약">
+      <button type="button" class="summary-card card-progress" data-filter="진행중">
+        <span class="summary-label">진행중</span>
+        <span class="summary-count" id="countProgress">0</span>
+      </button>
+      <button type="button" class="summary-card card-done" data-filter="완료">
+        <span class="summary-label">완료</span>
+        <span class="summary-count" id="countDone">0</span>
+      </button>
+      <button type="button" class="summary-card card-delayed" data-filter="지연">
+        <span class="summary-label">지연</span>
+        <span class="summary-count" id="countDelayed">0</span>
+      </button>
+      <button type="button" class="summary-card card-next" data-scroll="nextBoard">
+        <span class="summary-label" id="nextCardLabel">차주 예정</span>
+        <span class="summary-count" id="countNext">0</span>
+      </button>
+      <button type="button" class="summary-card card-meeting" data-scroll="schedule">
+        <span class="summary-label" id="meetingCardLabel">이번 주 미팅</span>
+        <span class="summary-count" id="countMeeting">0</span>
+        <span class="summary-sub" id="nextMeetingHint"></span>
+      </button>
+    </section>
+
+    <!-- 주간 일정 (미팅 + 마감) -->
+    <section class="board schedule" id="schedule" aria-labelledby="scheduleTitle">
+      <header class="board-header">
+        <h2 id="scheduleTitle">이번 주 일정</h2>
+        <span class="schedule-legend">📌 미팅 · ⏰ 업무 마감</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="addMeetingBtn">＋ 미팅 추가</button>
+      </header>
+      <ol class="week-strip" id="weekStrip"></ol>
+    </section>
+
+    <!-- 필터 -->
+    <section class="toolbar" aria-label="필터">
+      <label class="field-inline">
+        <span>담당자</span>
+        <select id="assigneeFilter">
+          <option value="">전체</option>
+        </select>
+      </label>
+      <label class="field-inline">
+        <span>상태</span>
+        <select id="statusFilter">
+          <option value="">전체</option>
+          <option value="예정">예정</option>
+          <option value="진행중">진행중</option>
+          <option value="완료">완료</option>
+          <option value="지연">지연</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn-ghost" id="resetFilterBtn">필터 초기화</button>
+    </section>
+
+    <!-- 업무 목록 -->
+    <section class="boards">
+      <article class="board">
+        <header class="board-header">
+          <h2 id="currentBoardTitle">이번 주 업무</h2>
+          <span class="board-count" id="currentBoardCount">0</span>
+          <button type="button" class="btn btn-ghost btn-sm board-add" data-add-offset="0">＋ 업무 추가</button>
+        </header>
+        <ul class="task-list" id="currentList"></ul>
+      </article>
+
+      <article class="board" id="nextBoard">
+        <header class="board-header">
+          <h2 id="nextBoardTitle">차주 예정 업무</h2>
+          <span class="board-count" id="nextBoardCount">0</span>
+          <button type="button" class="btn btn-ghost btn-sm board-add" data-add-offset="1">＋ 업무 추가</button>
+        </header>
+        <ul class="task-list" id="nextList"></ul>
+      </article>
+    </section>
+
+    <!-- 이월 필요 업무 -->
+    <section class="board board-overdue" id="overdueSection" hidden>
+      <header class="board-header">
+        <h2>지난 주차 미완료 업무</h2>
+        <span class="board-count" id="overdueCount">0</span>
+      </header>
+      <p class="board-desc">마감일이 지났지만 아직 완료되지 않은 업무입니다. 마감일을 수정해 이번 주로 이월할 수 있습니다.</p>
+      <ul class="task-list" id="overdueList"></ul>
+    </section>
+
+    <!-- 메모장 -->
+    <section class="board memo-board" id="memoSection" aria-labelledby="memoTitle">
+      <header class="board-header">
+        <h2 id="memoTitle">메모장</h2>
+        <span class="board-count" id="memoCount">0</span>
+        <button type="button" class="btn btn-ghost btn-sm" id="clearDoneMemosBtn">완료 항목 지우기</button>
+      </header>
+      <p class="board-desc">떠오른 아이디어나 다음에 논의할 내용을 적어 두세요. 주차와 상관없이 계속 보관됩니다.</p>
+
+      <form class="memo-form" id="memoForm">
+        <select id="memoCategory" aria-label="메모 분류">
+          <option value="아이디어">💡 아이디어</option>
+          <option value="논의">💬 논의 필요</option>
+          <option value="기타">📝 기타</option>
+        </select>
+        <input type="text" id="memoInput" maxlength="200" placeholder="메모를 입력하고 Enter" aria-label="메모 내용" />
+        <button type="submit" class="btn btn-primary">추가</button>
+      </form>
+
+      <div class="memo-tabs" role="tablist" aria-label="메모 분류 필터">
+        <button type="button" class="memo-tab active" data-memo-filter="">전체</button>
+        <button type="button" class="memo-tab" data-memo-filter="아이디어">💡 아이디어</button>
+        <button type="button" class="memo-tab" data-memo-filter="논의">💬 논의 필요</button>
+        <button type="button" class="memo-tab" data-memo-filter="기타">📝 기타</button>
+      </div>
+
+      <ul class="memo-list" id="memoList"></ul>
+    </section>
+  </main>
+
+  <!-- 업무 추가/수정 모달 -->
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle">업무 추가</h2>
+      <form id="taskForm" novalidate>
+        <input type="hidden" id="taskId" />
+
+        <label class="field">
+          <span>업무명 <em>*</em></span>
+          <input type="text" id="taskTitle" maxlength="100" placeholder="예: 3분기 성과 보고서 작성" required />
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>담당자 <em>*</em></span>
+            <input type="text" id="taskAssignee" maxlength="30" placeholder="담당자 이름 입력" autocomplete="off" required />
+          </label>
+          <label class="field">
+            <span>상태</span>
+            <select id="taskStatus">
+              <option value="예정">예정</option>
+              <option value="진행중">진행중</option>
+              <option value="완료">완료</option>
+              <option value="지연">지연</option>
+            </select>
+          </label>
+        </div>
+
+        <label class="field">
+          <span>마감일 <em>*</em></span>
+          <input type="date" id="taskDue" required />
+          <small class="field-hint" id="taskDueHint"></small>
+        </label>
+
+        <label class="field">
+          <span>주간 업데이트 메모</span>
+          <textarea id="taskMemo" rows="3" maxlength="500" placeholder="이번 주 진행 내용, 이슈 등을 기록하세요"></textarea>
+        </label>
+
+        <p class="form-error" id="formError" role="alert"></p>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="cancelBtn">취소</button>
+          <button type="submit" class="btn btn-primary" id="saveBtn">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 미팅 추가/수정 모달 -->
+  <div class="modal-backdrop" id="meetingModal" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="meetingModalTitle">
+      <h2 id="meetingModalTitle">미팅 추가</h2>
+      <form id="meetingForm" novalidate>
+        <input type="hidden" id="meetingId" />
+
+        <label class="field">
+          <span>미팅명 <em>*</em></span>
+          <input type="text" id="meetingTitle" maxlength="100" placeholder="예: 주간 팀 회의" required />
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span>날짜 <em>*</em></span>
+            <input type="date" id="meetingDate" required />
+          </label>
+          <label class="field">
+            <span>시간</span>
+            <input type="time" id="meetingTime" />
+          </label>
+        </div>
+
+        <div class="field-row">
+          <label class="field">
+            <span>참석자</span>
+            <input type="text" id="meetingAttendees" maxlength="100" placeholder="참석자 이름 입력" autocomplete="off" />
+          </label>
+          <label class="field">
+            <span>장소</span>
+            <input type="text" id="meetingLocation" maxlength="50" placeholder="예: 3층 회의실, Zoom" />
+          </label>
+        </div>
+
+        <p class="form-error" id="meetingFormError" role="alert"></p>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost btn-danger" id="deleteMeetingBtn" hidden>삭제</button>
+          <span class="spacer"></span>
+          <button type="button" class="btn btn-ghost" id="meetingCancelBtn">취소</button>
+          <button type="submit" class="btn btn-primary">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
