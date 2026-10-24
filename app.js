@@ -3,7 +3,7 @@
    - 데이터: localStorage (키: team-tasks-v1, team-meetings-v1, team-memos-v1)
    - 업무 구조: { id, title, assignee, status, dueDate(YYYY-MM-DD), memo, createdAt, updatedAt }
    - 미팅 구조: { id, title, date(YYYY-MM-DD), time(HH:MM 또는 ''), attendees, location, createdAt, updatedAt }
-   - 메모 구조: { id, text, category('아이디어'|'논의'|'기타'), done, createdAt, updatedAt } — 주차와 무관
+   - 메모 구조: { id, text, category('아이디어'|'논의'|'기타'), createdAt, updatedAt } — 주차와 무관
    - 주차 기준: 월요일 ~ 일요일, 마감일이 속한 주차에 업무가 표시됨
    ========================================================= */
 
@@ -161,7 +161,7 @@ function seedMemosIfFirstVisit() {
   state.memos = [
     { text: '분기 회고를 온라인 설문으로 진행해 보면 어떨까?', category: '아이디어' },
     { text: '다음 주간 회의에서 신규 서비스 일정 재조정 논의', category: '논의' },
-  ].map((m, i) => ({ id: createId(), done: false, createdAt: now + i, updatedAt: now + i, ...m }));
+  ].map((m, i) => ({ id: createId(), createdAt: now + i, updatedAt: now + i, ...m }));
   saveMemos();
 }
 
@@ -207,7 +207,6 @@ const els = {
   memoList: $('memoList'),
   memoCount: $('memoCount'),
   memoTabs: document.querySelectorAll('.memo-tab'),
-  clearDoneMemosBtn: $('clearDoneMemosBtn'),
   summaryCards: document.querySelectorAll('.summary-card'),
   assigneeFilter: $('assigneeFilter'),
   statusFilter: $('statusFilter'),
@@ -407,15 +406,13 @@ function formatMemoDate(ts) {
 }
 
 function renderMemos() {
-  const open = state.memos.filter((m) => !m.done).length;
-  els.memoCount.textContent = open;
-  els.clearDoneMemosBtn.hidden = !state.memos.some((m) => m.done);
+  els.memoCount.textContent = state.memos.length;
   els.memoTabs.forEach((tab) => tab.classList.toggle('active', tab.dataset.memoFilter === state.memoFilter));
 
-  // 미완료 먼저, 그 안에서는 최신순
+  // 최신순
   const list = state.memos
     .filter((m) => !state.memoFilter || m.category === state.memoFilter)
-    .sort((a, b) => a.done - b.done || b.createdAt - a.createdAt);
+    .sort((a, b) => b.createdAt - a.createdAt);
 
   if (!list.length) {
     els.memoList.innerHTML = `<li class="empty">${state.memos.length ? '이 분류에 메모가 없습니다.' : '아직 메모가 없습니다.'}</li>`;
@@ -429,8 +426,7 @@ function renderMemos() {
         ? `<input type="text" class="memo-edit" maxlength="200" value="${escapeHtml(m.text)}" aria-label="메모 수정" />`
         : `<p class="memo-text">${MEMO_CATEGORIES[m.category] || '📝'} ${escapeHtml(m.text)}</p>`;
       return `
-        <li class="memo memo-${escapeHtml(m.category)} ${m.done ? 'is-done' : ''}" data-memo-id="${escapeHtml(m.id)}">
-          <input type="checkbox" data-memo-action="toggle" ${m.done ? 'checked' : ''} aria-label="처리 완료" />
+        <li class="memo memo-${escapeHtml(m.category)}" data-memo-id="${escapeHtml(m.id)}">
           <div class="memo-content">
             ${body}
             <span class="memo-date">${formatMemoDate(m.createdAt)}${m.updatedAt !== m.createdAt ? ' (수정됨)' : ''}</span>
@@ -671,7 +667,7 @@ function addMemo(e) {
   const text = els.memoInput.value.trim();
   if (!text) return els.memoInput.focus();
   const now = Date.now();
-  state.memos.push({ id: createId(), text, category: els.memoCategory.value, done: false, createdAt: now, updatedAt: now });
+  state.memos.push({ id: createId(), text, category: els.memoCategory.value, createdAt: now, updatedAt: now });
   saveMemos();
   els.memoInput.value = '';
   // 다른 분류 탭을 보고 있었다면 방금 추가한 메모가 보이도록 전환
@@ -706,11 +702,7 @@ function handleMemoAction(e) {
   if (!memo) return;
 
   const action = target.dataset.memoAction;
-  if (action === 'toggle') {
-    memo.done = target.checked;
-    saveMemos();
-    renderMemos();
-  } else if (action === 'edit') {
+  if (action === 'edit') {
     state.editingMemoId = id;
     renderMemos();
   } else if (action === 'delete') {
@@ -720,14 +712,6 @@ function handleMemoAction(e) {
     saveMemos();
     renderMemos();
   }
-}
-
-function clearDoneMemos() {
-  const count = state.memos.filter((m) => m.done).length;
-  if (!count || !confirm(`완료한 메모 ${count}개를 삭제할까요?`)) return;
-  state.memos = state.memos.filter((m) => !m.done);
-  saveMemos();
-  renderMemos();
 }
 
 /* ---------- 이벤트 ---------- */
@@ -778,14 +762,7 @@ function bindEvents() {
 
   // 메모장
   els.memoForm.addEventListener('submit', addMemo);
-  els.clearDoneMemosBtn.addEventListener('click', clearDoneMemos);
-  els.memoList.addEventListener('click', (e) => {
-    if (e.target.matches('input[type="checkbox"]')) return; // 체크박스는 change에서 처리
-    handleMemoAction(e);
-  });
-  els.memoList.addEventListener('change', (e) => {
-    if (e.target.matches('input[type="checkbox"]')) handleMemoAction(e);
-  });
+  els.memoList.addEventListener('click', handleMemoAction);
   els.memoList.addEventListener('keydown', (e) => {
     if (!e.target.classList.contains('memo-edit')) return;
     const id = e.target.closest('.memo').dataset.memoId;
