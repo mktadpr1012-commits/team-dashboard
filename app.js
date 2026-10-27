@@ -1,10 +1,12 @@
 /* =========================================================
    팀 업무 대시보드
    - 데이터: localStorage (키: team-tasks-v1, team-meetings-v1, team-memos-v1)
-   - 업무 구조: { id, title, assignee, status, dueDate(YYYY-MM-DD), memo, createdAt, updatedAt }
+   - 업무 구조: { id, title, assignee, status, startDate(YYYY-MM-DD), dueDate(YYYY-MM-DD), memo,
+                 planWeek(월요일 YYYY-MM-DD, 드래그로 지정한 주차 — 없으면 착수일 기준), createdAt, updatedAt }
    - 미팅 구조: { id, title, date(YYYY-MM-DD), time(HH:MM 또는 ''), attendees, location, createdAt, updatedAt }
    - 메모 구조: { id, text, category('아이디어'|'논의'|'기타'), createdAt, updatedAt } — 주차와 무관
-   - 주차 기준: 월요일 ~ 일요일, 마감일이 속한 주차에 업무가 표시됨
+   - 주차 기준: 월요일 ~ 일요일, 착수일이 속한 주차에 업무가 표시됨 (드래그로 옮기면 planWeek 우선)
+     착수한 주가 지나도 미완료이고 마감 전이면 이후 주차에도 계속 표시됨
    ========================================================= */
 
 const STORAGE_KEY = 'team-tasks-v1';
@@ -118,13 +120,13 @@ function seedIfFirstVisit() {
   const mon = startOfWeek(new Date());
   const day = (n) => toKey(addDays(mon, n));
   const samples = [
-    { title: '주간 회의 자료 준비', assignee: '김민지', status: '완료', dueDate: day(0), memo: '안건 정리 및 공유 완료' },
-    { title: '고객 설문 결과 분석', assignee: '이서준', status: '진행중', dueDate: day(3), memo: '응답 120건 중 80건 분류' },
-    { title: '신규 서비스 기획안 초안', assignee: '박하은', status: '진행중', dueDate: day(4), memo: '' },
-    { title: '홈페이지 배너 교체', assignee: '김민지', status: '지연', dueDate: day(2), memo: '디자인 시안 회신 대기 중' },
-    { title: '월간 성과 보고서 작성', assignee: '이서준', status: '예정', dueDate: day(9), memo: '' },
-    { title: '협력사 미팅 일정 조율', assignee: '박하은', status: '예정', dueDate: day(10), memo: '' },
-    { title: '지난 분기 지표 정리', assignee: '김민지', status: '완료', dueDate: day(-4), memo: '대시보드 반영 완료' },
+    { title: '주간 회의 자료 준비', assignee: '김민지', status: '완료', startDate: day(0), dueDate: day(0), memo: '안건 정리 및 공유 완료' },
+    { title: '고객 설문 결과 분석', assignee: '이서준', status: '진행중', startDate: day(0), dueDate: day(3), memo: '응답 120건 중 80건 분류' },
+    { title: '신규 서비스 기획안 초안', assignee: '박하은', status: '진행중', startDate: day(1), dueDate: day(4), memo: '' },
+    { title: '홈페이지 배너 교체', assignee: '김민지', status: '지연', startDate: day(-3), dueDate: day(2), memo: '디자인 시안 회신 대기 중' },
+    { title: '월간 성과 보고서 작성', assignee: '이서준', status: '진행중', startDate: day(2), dueDate: day(11), memo: '이번 주 착수, 다음 주 금요일 마감' },
+    { title: '협력사 미팅 일정 조율', assignee: '박하은', status: '예정', startDate: day(7), dueDate: day(10), memo: '' },
+    { title: '지난 분기 지표 정리', assignee: '김민지', status: '완료', startDate: day(-7), dueDate: day(-4), memo: '대시보드 반영 완료' },
   ];
   const now = Date.now();
   state.tasks = samples.map((t, i) => ({ id: createId(), createdAt: now + i, updatedAt: now + i, ...t }));
@@ -168,6 +170,18 @@ function seedMemosIfFirstVisit() {
 function createId() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** 착수일이 없던 이전 데이터: 등록일(마감일보다 늦으면 마감일)을 착수일로 채움 */
+function migrateTasks() {
+  let changed = false;
+  state.tasks.forEach((t) => {
+    if (t.startDate) return;
+    const created = toKey(new Date(t.createdAt || Date.now()));
+    t.startDate = created < t.dueDate ? created : t.dueDate;
+    changed = true;
+  });
+  if (changed) saveTasks();
 }
 
 /* ---------- DOM ---------- */
@@ -227,8 +241,9 @@ const els = {
   taskTitle: $('taskTitle'),
   taskAssignee: $('taskAssignee'),
   taskStatus: $('taskStatus'),
+  taskStart: $('taskStart'),
+  taskStartHint: $('taskStartHint'),
   taskDue: $('taskDue'),
-  taskDueHint: $('taskDueHint'),
   taskMemo: $('taskMemo'),
   formError: $('formError'),
   cancelBtn: $('cancelBtn'),
@@ -276,6 +291,18 @@ function isOverdue(task) {
   return task.status !== '완료' && task.dueDate < todayKey();
 }
 
+/** 업무가 분류되는 주차의 월요일 키: 드래그로 지정한 주차 > 착수일이 속한 주차 */
+function taskWeekKey(task) {
+  return task.planWeek || toKey(startOfWeek(parseKey(task.startDate)));
+}
+
+/** 해당 주차 업무: 그 주에 착수했거나, 이전에 착수해 아직 진행 중(미완료·마감 전)인 업무 */
+function inWeekBoard(task, range) {
+  const wk = taskWeekKey(task);
+  if (wk === range.startKey) return true;
+  return wk < range.startKey && task.status !== '완료' && task.dueDate >= range.startKey;
+}
+
 /* ---------- 렌더링 ---------- */
 function render() {
   const cur = weekRange(state.weekOffset);
@@ -293,8 +320,9 @@ function render() {
   els.scheduleTitle.textContent = `${boardPrefix} 일정`;
 
   // 주차별 업무 (담당자 필터만 적용 → 요약 카드용)
-  const weekTasks = state.tasks.filter((t) => inRange(t.dueDate, cur.startKey, cur.endKey) && matchesAssignee(t));
-  const nextTasks = state.tasks.filter((t) => inRange(t.dueDate, next.startKey, next.endKey) && matchesAssignee(t));
+  // 이번 주: 착수 주차 기준 / 차주 예정: 다음 주에 착수할 업무만
+  const weekTasks = state.tasks.filter((t) => inWeekBoard(t, cur) && matchesAssignee(t));
+  const nextTasks = state.tasks.filter((t) => taskWeekKey(t) === next.startKey && matchesAssignee(t));
 
   // 요약 카드
   els.countProgress.textContent = weekTasks.filter((t) => t.status === '진행중').length;
@@ -323,9 +351,11 @@ function render() {
       : [];
   els.overdueSection.hidden = overdue.length === 0;
   els.overdueCount.textContent = overdue.length;
-  renderList(els.overdueList, overdue, '');
+  renderList(els.overdueList, overdue, '', false);
 
-  renderSchedule(cur, weekTasks);
+  // 주간 일정의 마감 표시는 분류와 상관없이 마감일 기준
+  const dueThisWeek = state.tasks.filter((t) => inRange(t.dueDate, cur.startKey, cur.endKey) && matchesAssignee(t));
+  renderSchedule(cur, dueThisWeek);
   renderMemos();
   renderAssigneeOptions();
 }
@@ -350,14 +380,14 @@ function renderMeetingCard(cur, boardPrefix) {
 }
 
 /** 월~일 7칸: 미팅 + 해당 날짜 마감 업무 수 (업무는 담당자 필터 적용) */
-function renderSchedule(cur, weekTasks) {
+function renderSchedule(cur, dueTasksInWeek) {
   const today = todayKey();
   const days = [];
   for (let i = 0; i < 7; i++) {
     const date = addDays(cur.start, i);
     const key = toKey(date);
     const meetings = sortMeetings(state.meetings.filter((m) => m.date === key));
-    const dueTasks = weekTasks.filter((t) => t.dueDate === key);
+    const dueTasks = dueTasksInWeek.filter((t) => t.dueDate === key);
     const doneCount = dueTasks.filter((t) => t.status === '완료').length;
     const delayed = dueTasks.some((t) => t.status === '지연' || isOverdue(t));
 
@@ -446,28 +476,33 @@ function renderMemos() {
   }
 }
 
-function renderList(listEl, tasks, emptyText) {
+function renderList(listEl, tasks, emptyText, draggable = true) {
   if (!tasks.length) {
     listEl.innerHTML = emptyText ? `<li class="empty">${escapeHtml(emptyText)}</li>` : '';
     return;
   }
-  listEl.innerHTML = tasks.map(taskTemplate).join('');
+  listEl.innerHTML = tasks.map((t) => taskTemplate(t, draggable)).join('');
 }
 
-function taskTemplate(task) {
+function taskTemplate(task, draggable) {
   const due = parseKey(task.dueDate);
+  const carried = draggable && taskWeekKey(task) < weekRange(state.weekOffset).startKey;
   const statusOptions = STATUSES.map(
     (s) => `<option value="${s}" ${s === task.status ? 'selected' : ''}>${s}</option>`
   ).join('');
   return `
-    <li class="task status-${task.status} ${task.status === '완료' ? 'is-done' : ''}" data-id="${escapeHtml(task.id)}">
+    <li class="task status-${task.status} ${task.status === '완료' ? 'is-done' : ''}" data-id="${escapeHtml(task.id)}"${
+      draggable ? ' draggable="true" title="드래그하여 이번 주 / 차주 예정으로 이동"' : ''
+    }>
       <div class="task-top">
         <p class="task-title">${escapeHtml(task.title)}</p>
         <span class="badge">${task.status}</span>
       </div>
       <div class="task-meta">
         <span>👤 ${escapeHtml(task.assignee)}</span>
+        <span>🚀 ${formatShort(parseKey(task.startDate))} 착수</span>
         <span>📅 ${formatShort(due)} 마감</span>
+        ${carried ? '<span class="badge badge-carried">이전 주 착수</span>' : ''}
         ${isOverdue(task) ? '<span class="badge badge-overdue">기한 초과</span>' : ''}
       </div>
       ${task.memo ? `<p class="task-memo">${escapeHtml(task.memo)}</p>` : ''}
@@ -506,6 +541,7 @@ function openModal(task, boardOffset = 0) {
     els.taskTitle.value = task.title;
     els.taskAssignee.value = task.assignee;
     els.taskStatus.value = task.status;
+    els.taskStart.value = task.startDate;
     els.taskDue.value = task.dueDate;
     els.taskMemo.value = task.memo || '';
   } else {
@@ -514,30 +550,33 @@ function openModal(task, boardOffset = 0) {
     els.modalTitle.textContent = `${boardTitle} 추가`;
     els.taskId.value = '';
     els.taskStatus.value = '예정';
-    // 해당 칸 주차의 금요일로 기본 마감일 설정 (그 주가 이번 주이고 금요일이 지났으면 오늘)
-    const { start, endKey } = weekRange(targetOffset);
-    const friday = toKey(addDays(start, 4));
+    // 착수일: 해당 칸 주차의 월요일 (그 주가 이번 주면 오늘)
+    // 마감일: 해당 칸 주차의 금요일 (금요일이 착수일보다 이르면 착수일)
+    const { start, startKey, endKey } = weekRange(targetOffset);
     const today = todayKey();
-    els.taskDue.value = friday < today && today <= endKey ? today : friday;
+    const startDate = inRange(today, startKey, endKey) ? today : startKey;
+    const friday = toKey(addDays(start, 4));
+    els.taskStart.value = startDate;
+    els.taskDue.value = friday < startDate ? startDate : friday;
   }
-  updateDueHint();
+  updateStartHint();
   els.modal.hidden = false;
   document.body.style.overflow = 'hidden';
   setTimeout(() => els.taskTitle.focus(), 0);
 }
 
-/** 선택한 마감일이 어느 칸에 표시되는지 안내 */
-function updateDueHint() {
-  const value = els.taskDue.value;
+/** 선택한 착수일 기준으로 어느 칸에 표시되는지 안내 */
+function updateStartHint() {
+  const value = els.taskStart.value;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    els.taskDueHint.textContent = '';
+    els.taskStartHint.textContent = '';
     return;
   }
   const viewedStart = weekRange(state.weekOffset).start;
   const diff = Math.round((startOfWeek(parseKey(value)) - viewedStart) / (7 * 24 * 60 * 60 * 1000));
-  if (diff === 0) els.taskDueHint.textContent = `→ '${els.currentBoardTitle.textContent}' 칸에 표시됩니다.`;
-  else if (diff === 1) els.taskDueHint.textContent = `→ '${els.nextBoardTitle.textContent}' 칸에 표시됩니다.`;
-  else els.taskDueHint.textContent = `→ ${weekLabel(startOfWeek(parseKey(value)))}에 표시됩니다. (지금 보는 화면에는 보이지 않아요)`;
+  if (diff === 0) els.taskStartHint.textContent = `→ '${els.currentBoardTitle.textContent}' 칸에 표시됩니다.`;
+  else if (diff === 1) els.taskStartHint.textContent = `→ '${els.nextBoardTitle.textContent}' 칸에 표시됩니다.`;
+  else els.taskStartHint.textContent = `→ ${weekLabel(startOfWeek(parseKey(value)))} 착수 업무로 표시됩니다.`;
 }
 
 function closeModal() {
@@ -549,21 +588,28 @@ function handleSubmit(e) {
   e.preventDefault();
   const title = els.taskTitle.value.trim();
   const assignee = els.taskAssignee.value.trim();
+  const startDate = els.taskStart.value;
   const dueDate = els.taskDue.value;
   const status = els.taskStatus.value;
   const memo = els.taskMemo.value.trim();
 
   if (!title) return showFormError('업무명을 입력해 주세요.', els.taskTitle);
   if (!assignee) return showFormError('담당자를 입력해 주세요.', els.taskAssignee);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return showFormError('착수일을 선택해 주세요.', els.taskStart);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return showFormError('마감일을 선택해 주세요.', els.taskDue);
+  if (dueDate < startDate) return showFormError('마감일은 착수일과 같거나 이후여야 합니다.', els.taskDue);
 
   const id = els.taskId.value;
   const now = Date.now();
   if (id) {
     const task = state.tasks.find((t) => t.id === id);
-    if (task) Object.assign(task, { title, assignee, status, dueDate, memo, updatedAt: now });
+    if (task) {
+      // 착수일을 바꾸면 드래그로 지정했던 주차는 해제하고 착수일 기준으로 다시 분류
+      if (task.startDate !== startDate) delete task.planWeek;
+      Object.assign(task, { title, assignee, status, startDate, dueDate, memo, updatedAt: now });
+    }
   } else {
-    state.tasks.push({ id: createId(), title, assignee, status, dueDate, memo, createdAt: now, updatedAt: now });
+    state.tasks.push({ id: createId(), title, assignee, status, startDate, dueDate, memo, createdAt: now, updatedAt: now });
   }
   saveTasks();
   closeModal();
@@ -588,6 +634,20 @@ function updateStatus(id, status) {
   const task = state.tasks.find((t) => t.id === id);
   if (!task || !STATUSES.includes(status)) return;
   task.status = status;
+  task.updatedAt = Date.now();
+  saveTasks();
+  render();
+}
+
+/** 드래그로 업무를 다른 칸(boardOffset 0 = 보고 있는 주, 1 = 차주 예정)으로 이동 */
+function moveTaskToBoard(id, boardOffset) {
+  const task = state.tasks.find((t) => t.id === id);
+  if (!task) return;
+  const targetKey = weekRange(state.weekOffset + boardOffset).startKey;
+  if (taskWeekKey(task) === targetKey) return;
+  // 착수일 주차와 같아지면 지정 해제(자동 분류로 복귀), 아니면 주차 지정
+  if (toKey(startOfWeek(parseKey(task.startDate))) === targetKey) delete task.planWeek;
+  else task.planWeek = targetKey;
   task.updatedAt = Date.now();
   saveTasks();
   render();
@@ -719,8 +779,8 @@ function bindEvents() {
   document.querySelectorAll('.board-add').forEach((btn) => {
     btn.addEventListener('click', () => openModal(null, Number(btn.dataset.addOffset)));
   });
-  els.taskDue.addEventListener('input', updateDueHint);
-  els.taskDue.addEventListener('change', updateDueHint);
+  els.taskStart.addEventListener('input', updateStartHint);
+  els.taskStart.addEventListener('change', updateStartHint);
   els.cancelBtn.addEventListener('click', closeModal);
   els.form.addEventListener('submit', handleSubmit);
   els.modal.addEventListener('click', (e) => {
@@ -818,6 +878,47 @@ function bindEvents() {
     });
   });
 
+  // 업무 카드 Drag & Drop: 이번 주 업무 ↔ 차주 예정 업무
+  let draggingId = null;
+  const dropZones = [
+    { list: els.currentList, offset: 0 },
+    { list: els.nextList, offset: 1 },
+  ];
+  const clearDropHighlight = () => dropZones.forEach(({ list }) => list.closest('.board').classList.remove('is-drop-target'));
+  dropZones.forEach(({ list, offset }) => {
+    const board = list.closest('.board');
+    list.addEventListener('dragstart', (e) => {
+      const card = e.target.closest && e.target.closest('.task[draggable="true"]');
+      if (!card) return;
+      draggingId = card.dataset.id;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', draggingId);
+      requestAnimationFrame(() => card.classList.add('is-dragging'));
+    });
+    list.addEventListener('dragend', (e) => {
+      draggingId = null;
+      if (e.target.classList) e.target.classList.remove('is-dragging');
+      clearDropHighlight();
+    });
+    board.addEventListener('dragover', (e) => {
+      if (!draggingId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      board.classList.add('is-drop-target');
+    });
+    board.addEventListener('dragleave', (e) => {
+      if (!board.contains(e.relatedTarget)) board.classList.remove('is-drop-target');
+    });
+    board.addEventListener('drop', (e) => {
+      if (!draggingId) return;
+      e.preventDefault();
+      const id = draggingId;
+      draggingId = null;
+      clearDropHighlight();
+      moveTaskToBoard(id, offset);
+    });
+  });
+
   // 다른 탭에서 데이터가 바뀌면 동기화
   window.addEventListener('storage', (e) => {
     if (e.key === STORAGE_KEY) state.tasks = loadTasks();
@@ -830,6 +931,7 @@ function bindEvents() {
 
 /* ---------- 시작 ---------- */
 state.tasks = loadTasks();
+migrateTasks();
 state.meetings = loadMeetings();
 state.memos = loadMemos();
 seedIfFirstVisit();

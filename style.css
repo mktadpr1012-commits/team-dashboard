@@ -254,6 +254,9 @@ select, input, textarea {
   padding: 12px 14px;
   background: var(--surface);
 }
+.task[draggable="true"] { cursor: grab; }
+.task.is-dragging { opacity: 0.4; }
+.board.is-drop-target { outline: 2px dashed var(--primary); outline-offset: -2px; }
 .task.is-done .task-title { text-decoration: line-through; color: var(--text-muted); }
 .task-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .task-title { margin: 0; font-size: 0.98rem; font-weight: 500; word-break: break-word; }
@@ -298,6 +301,7 @@ select, input, textarea {
   background: var(--status-bg);
 }
 .badge-overdue { color: var(--delayed); background: var(--delayed-bg); }
+.badge-carried { background: var(--bg); color: var(--text-muted); }
 
 .status-예정   { --status-color: var(--planned);  --status-bg: var(--planned-bg); }
 .status-진행중 { --status-color: var(--progress); --status-bg: var(--progress-bg); }
@@ -472,6 +476,7 @@ select, input, textarea {
 .field textarea { resize: vertical; }
 .field-row { display: flex; gap: 12px; }
 .field-hint { font-size: 0.78rem; font-weight: 400; color: var(--text-muted); min-height: 1.2em; }
+.field-hint-block { display: block; margin: -8px 0 14px; }
 .form-error { color: var(--delayed); font-size: 0.85rem; min-height: 1.2em; margin: 0 0 8px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .modal-actions .spacer { flex: 1; }

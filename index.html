@@ -172,11 +172,17 @@
           </label>
         </div>
 
-        <label class="field">
-          <span>마감일 <em>*</em></span>
-          <input type="date" id="taskDue" required />
-          <small class="field-hint" id="taskDueHint"></small>
-        </label>
+        <div class="field-row">
+          <label class="field">
+            <span>착수일 <em>*</em></span>
+            <input type="date" id="taskStart" required />
+          </label>
+          <label class="field">
+            <span>마감일 <em>*</em></span>
+            <input type="date" id="taskDue" required />
+          </label>
+        </div>
+        <small class="field-hint field-hint-block" id="taskStartHint"></small>
 
         <label class="field">
           <span>주간 업데이트 메모</span>
