@@ -10,11 +10,9 @@
    ========================================================= */
 
 const STORAGE_KEY = 'team-tasks-v1';
-const SEEDED_KEY = 'team-tasks-seeded';
 const MEETING_KEY = 'team-meetings-v1';
-const MEETING_SEEDED_KEY = 'team-meetings-seeded';
 const MEMO_KEY = 'team-memos-v1';
-const MEMO_SEEDED_KEY = 'team-memos-seeded';
+const SAMPLES_REMOVED_KEY = 'team-samples-removed';
 const MEMO_CATEGORIES = { 아이디어: '💡', 논의: '💬', 기타: '📝' };
 const STATUSES = ['예정', '진행중', '완료', '지연'];
 
@@ -109,62 +107,41 @@ const saveMeetings = () => saveList(MEETING_KEY, state.meetings);
 const loadMemos = () => loadList(MEMO_KEY);
 const saveMemos = () => saveList(MEMO_KEY, state.memos);
 
-/** 첫 방문 시 사용 예시를 보여주기 위한 샘플 업무 */
-function seedIfFirstVisit() {
+/** 예전 버전이 첫 방문 때 자동으로 넣었던 샘플 데이터를 한 번만 정리 */
+function removeSampleDataOnce() {
   try {
-    if (localStorage.getItem(SEEDED_KEY) || state.tasks.length) return;
-    localStorage.setItem(SEEDED_KEY, '1');
+    if (localStorage.getItem(SAMPLES_REMOVED_KEY)) return;
+    localStorage.setItem(SAMPLES_REMOVED_KEY, '1');
   } catch (e) {
     return;
   }
-  const mon = startOfWeek(new Date());
-  const day = (n) => toKey(addDays(mon, n));
-  const samples = [
-    { title: '주간 회의 자료 준비', assignee: '김민지', status: '완료', startDate: day(0), dueDate: day(0), memo: '안건 정리 및 공유 완료' },
-    { title: '고객 설문 결과 분석', assignee: '이서준', status: '진행중', startDate: day(0), dueDate: day(3), memo: '응답 120건 중 80건 분류' },
-    { title: '신규 서비스 기획안 초안', assignee: '박하은', status: '진행중', startDate: day(1), dueDate: day(4), memo: '' },
-    { title: '홈페이지 배너 교체', assignee: '김민지', status: '지연', startDate: day(-3), dueDate: day(2), memo: '디자인 시안 회신 대기 중' },
-    { title: '월간 성과 보고서 작성', assignee: '이서준', status: '진행중', startDate: day(2), dueDate: day(11), memo: '이번 주 착수, 다음 주 금요일 마감' },
-    { title: '협력사 미팅 일정 조율', assignee: '박하은', status: '예정', startDate: day(7), dueDate: day(10), memo: '' },
-    { title: '지난 분기 지표 정리', assignee: '김민지', status: '완료', startDate: day(-7), dueDate: day(-4), memo: '대시보드 반영 완료' },
-  ];
-  const now = Date.now();
-  state.tasks = samples.map((t, i) => ({ id: createId(), createdAt: now + i, updatedAt: now + i, ...t }));
-  saveTasks();
-}
+  const sampleTasks = new Set([
+    '주간 회의 자료 준비|김민지',
+    '고객 설문 결과 분석|이서준',
+    '신규 서비스 기획안 초안|박하은',
+    '홈페이지 배너 교체|김민지',
+    '월간 성과 보고서 작성|이서준',
+    '협력사 미팅 일정 조율|박하은',
+    '지난 분기 지표 정리|김민지',
+  ]);
+  const sampleMeetings = new Set([
+    '주간 팀 회의|전체|3층 회의실',
+    '협력사 킥오프 미팅|박하은, 이서준|Zoom',
+  ]);
+  const sampleMemos = new Set([
+    '분기 회고를 온라인 설문으로 진행해 보면 어떨까?',
+    '다음 주간 회의에서 신규 서비스 일정 재조정 논의',
+  ]);
 
-function seedMeetingsIfFirstVisit() {
-  try {
-    if (localStorage.getItem(MEETING_SEEDED_KEY) || state.meetings.length) return;
-    localStorage.setItem(MEETING_SEEDED_KEY, '1');
-  } catch (e) {
-    return;
-  }
-  const mon = startOfWeek(new Date());
-  const day = (n) => toKey(addDays(mon, n));
-  const samples = [
-    { title: '주간 팀 회의', date: day(0), time: '10:00', attendees: '전체', location: '3층 회의실' },
-    { title: '협력사 킥오프 미팅', date: day(2), time: '14:00', attendees: '박하은, 이서준', location: 'Zoom' },
-    { title: '주간 팀 회의', date: day(7), time: '10:00', attendees: '전체', location: '3층 회의실' },
-  ];
-  const now = Date.now();
-  state.meetings = samples.map((m, i) => ({ id: createId(), createdAt: now + i, updatedAt: now + i, ...m }));
-  saveMeetings();
-}
-
-function seedMemosIfFirstVisit() {
-  try {
-    if (localStorage.getItem(MEMO_SEEDED_KEY) || state.memos.length) return;
-    localStorage.setItem(MEMO_SEEDED_KEY, '1');
-  } catch (e) {
-    return;
-  }
-  const now = Date.now();
-  state.memos = [
-    { text: '분기 회고를 온라인 설문으로 진행해 보면 어떨까?', category: '아이디어' },
-    { text: '다음 주간 회의에서 신규 서비스 일정 재조정 논의', category: '논의' },
-  ].map((m, i) => ({ id: createId(), createdAt: now + i, updatedAt: now + i, ...m }));
-  saveMemos();
+  const tasks = state.tasks.filter((t) => !sampleTasks.has(`${t.title}|${t.assignee}`));
+  const meetings = state.meetings.filter((m) => !sampleMeetings.has(`${m.title}|${m.attendees}|${m.location}`));
+  const memos = state.memos.filter((m) => !sampleMemos.has(m.text));
+  if (tasks.length !== state.tasks.length) { state.tasks = tasks; saveTasks(); }
+  if (meetings.length !== state.meetings.length) { state.meetings = meetings; saveMeetings(); }
+  if (memos.length !== state.memos.length) { state.memos = memos; saveMemos(); }
+  ['team-tasks-seeded', 'team-meetings-seeded', 'team-memos-seeded'].forEach((k) => {
+    try { localStorage.removeItem(k); } catch (e) { /* 무시 */ }
+  });
 }
 
 function createId() {
@@ -934,8 +911,6 @@ state.tasks = loadTasks();
 migrateTasks();
 state.meetings = loadMeetings();
 state.memos = loadMemos();
-seedIfFirstVisit();
-seedMeetingsIfFirstVisit();
-seedMemosIfFirstVisit();
+removeSampleDataOnce();
 bindEvents();
 render();
